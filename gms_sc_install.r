@@ -1,5 +1,6 @@
-# Install packages
-# this has been test on R 3.6.3, R 3.6.0 
+# Install packages for GMS single cell practical session 2020-12-07
+# Charlotte Rich-Griffin
+# this has been test on R 3.6.3, and R 4.0.0
 
 if (!requireNamespace("BiocManager", quietly = TRUE))
 	install.packages("BiocManager")
@@ -24,11 +25,11 @@ library(SeuratData)
 # Installing the other two datasets using the SeuratData package
 # the Seurat Data will install into your R libraries so you fon't need to worry where it is saved
 AvailableData()
+InstallData("pbmc3k")
 InstallData("ifnb")
 InstallData("cbmc")
 # check they have installed
 AvailableData()[,c("Dataset", "Installed")]
-
 
 
 

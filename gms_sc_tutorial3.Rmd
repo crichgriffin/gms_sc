@@ -1,0 +1,99 @@
+---
+title: "GMS single cell practical 3 - Finding Differentially expressed genes"
+author: "Charlotte Rich-Griffin"
+date: "04/12/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+# BiocManager::install('limma')
+library(Seurat)
+
+```
+
+
+
+```{r, fig.width=8, fig.height=3}
+ifnb <- readRDS("~/gms/data/ifnb_integrated.rds")
+UMAPPlot(ifnb, group.by=c("seurat_clusters", "seurat_annotations"))
+```
+
+
+### Finding differentially expressed features (cluster biomarkers)
+	
+	Seurat can help you find markers that define clusters via differential expression. By default, it identifes positive and negative markers of a single cluster (specified in `ident.1`), compared to all other cells.  `FindAllMarkers` automates this process for all clusters, but you can also test groups of clusters vs. each other, or against all cells.
+
+The `min.pct` argument requires a feature to be detected at a minimum percentage in either of the two groups of cells, and the thresh.test argument requires a feature to be differentially expressed (on average) by some amount between the two groups. You can set both of these to 0, but with a dramatic increase in time - since this will test a large number of features that are unlikely to be highly discriminatory. As another option to speed up these computations, `max.cells.per.ident` can be set. This will downsample each identity class to have no more cells than whatever this is set to. While there is generally going to be a loss in power, the speed increases can be significiant and the most highly differentially expressed features will likely still rise to the top.
+```{r}
+DefaultAssay(ifnb) <- "integrated"
+
+```
+
+
+```{r markers1, fig.height=8, fig.width=15}
+# find all markers of cluster 1
+cluster1.markers <- FindMarkers(object = ifnb, ident.1 = 1, min.pct = 0.25)
+head(x = cluster1.markers, n = 5)
+```
+
+
+```{r markers1, fig.height=8, fig.width=15}
+# find all markers distinguishing cluster 5 from clusters 0 and 3
+cluster4.markers <- FindMarkers(object = ifnb, ident.1 = 4, ident.2 = c(0, 8), min.pct = 0.25)
+head(x = cluster4.markers, n = 5)
+```
+
+
+```{r markers1, fig.height=8, fig.width=15}
+# find markers for every cluster compared to all remaining cells, report only the positive ones
+ifnb.markers <- FindAllMarkers(object = ifnb, only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.25)
+ifnb.markers %>% group_by(cluster) %>% top_n(n = 2, wt = avg_logFC)
+```
+
+Seurat has several tests for differential expression which can be set with the test.use parameter (see our [DE vignette](http://satijalab01.nygenome.org/seurat/v3.0/de_vignette.html) for details). For example, the ROC test returns the 'classification power' for any individual marker (ranging from 0 - random, to 1 - perfect).
+
+*Maybe have a look at what the different DE methods available are and how different the results are*
+
+```{r markersroc, fig.height=8, fig.width=15}
+# cluster1.markers <- FindMarkers(object = ifnb, ident.1 = 0, logfc.threshold = 0.25, test.use = "roc", only.pos = TRUE)
+```
+
+Alterntaviely if we want to sepcifically look for conserved markers across your conditions, we could use the `FindConservedMarkers`
+
+We include several tools for visualizing marker expression. `VlnPlot` (shows expression probability distributions across clusters), and `FeaturePlot` (visualizes feature expression on a tSNE or PCA plot) are our most commonly used visualizations. We also suggest exploring `RidgePlot`, `CellScatter`, and `DotPlot` as additional methods to view your dataset.
+
+```{r markerplots, fig.height=8, fig.width=15}
+VlnPlot(object = ifnb, features = c("MS4A1", "CD79A"))
+# you can plot raw counts as well
+VlnPlot(object = ifnb, features = c("NKG7", "PF4"), slot = 'counts', log = TRUE)
+FeaturePlot(immune.combined, features = c("CD3D", "SELL", "CREM", "CD8A", "GNLY", "CD79A", "FCGR3A", 
+    "CCL2", "PPBP"), min.cutoff = "q9")
+```
+
+`DoHeatmap` generates an expression heatmap for given cells and features. In this case, we are plotting the top 20 markers (or all markers if less than 20) for each cluster.
+
+```{r clusterHeatmap, fig.height=12, fig.width=15}
+ifnb.markers %>% group_by(cluster) %>% top_n(n = 10, wt = avg_logFC) -> top10
+DoHeatmap(object = ifnb, features = top10$gene) + NoLegend()
+```
+
+***
+### Assigning cell type identity to clusters
+	
+In many cases we can use canonical markers to identify the clusters. 
+In our case we are lucky that it has already been done for us and is in the metadata under `seurat_annotations`, and it corresponds pretty well with our clusters.
+
+(If you need it, you can look up code to assign an annotation column to the metadata in the pbmc3k Seurat vignette)
+
+```{r, fig.width=8, fig.height=3}
+UMAPPlot(ifnb, group.by=c("seurat_clusters", "seurat_annotations"))
+```
+
+## Identifying conserved markers
+Going back to our experiment, we can ask how do 
+
+
+```{r save.rds}
+saveRDS(ifnb, file = "../output/ifnb_final.rds")
+```
