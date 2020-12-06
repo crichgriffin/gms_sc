@@ -7,37 +7,41 @@ output: html_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+BiocManager::install("clustree")
+library(clustree)
+
 library(Seurat)
 library(SeuratData)
 library(cowplot)
+library(ggplot2)
 ```
 
-This tutorial uses the data and loosely follows the tutorial here: https://satijalab.org/seurat/v3.2/immune_alignment.html
 
 This tutorial walks through an alignment of two groups of PBMCs from [Kang et al, 2017.](https://www.nature.com/articles/nbt.4042) In this experiment, PBMCs were split into a stimulated and control group and the stimulated group was treated with interferon beta. The response to interferon caused cell type specific gene expression changes that makes a joint analysis of all the data difficult, with cells clustering both by stimulation condition and by cell type.
 
+
 # Load the data
 
-```{r}
+```{r load_data}
 data(ifnb)
 ifnb
 ```
 
 What does the metadata look like?
 
-```{r}
+```{r metadata}
 ifnb@meta.data 
 ```
 
 In this datase, the two samples are labelled CTRL and STIM. This data set has already been quality controlled but we can take a quick look at the QC metrics.
 *Make Violin plots for nCount_RNA and nFeature_RNA*
 *Look up in the documentation how to group the plots by different samples*
-```{r}
+```{r qc_plots1}
 VlnPlot(ifnb, features = c('nCount_RNA', 'nFeature_RNA'),group.by ="stim", pt.size = 0.01)
 ```
 
 *Make a scatter plot compaing nCount_RNA and nFeature_RNA*
-```{r}
+```{r  qc_plots2}
 FeatureScatter(ifnb, feature1 = "nCount_RNA", feature2 = "nFeature_RNA")
 ```
 
@@ -45,8 +49,8 @@ Based on these plots, are we happy about the filtering that has been done?
 
 Some of the integration steps are quite computationally intensive, so if you were running this in "real life" you will probably need to get access to some High Performance Comuting facilities.
 
-For the pruposes of today, we are going to sample our data down so we can run it locally
-```{r}
+For the purposes of today, we are going to sample our data down so we can run it locally
+```{r subset_data}
 set.seed(42)
 ifnb = subset(ifnb, cells = sample(Cells(ifnb), 4000))
 # check we have approximately equal CTRL and STIM cells
@@ -64,8 +68,11 @@ Why integrate data?
 
 Integration is also referred to as batch correction, as you are essentially trying to merge your samples. What are some potential source of batch effects? How might you mitigate vbatch effects with experimental design?
 
-### Standard Workflows: 
-```{r}
+## Standard Workflows: 
+
+1. Split the dataset in two, and run normal normalisation steps.
+
+```{r split_data}
 ifnb.list <- SplitObject(ifnb, split.by = "stim")
 
 ifnb.list <- lapply(X = ifnb.list, FUN = function(x) {
@@ -73,29 +80,62 @@ ifnb.list <- lapply(X = ifnb.list, FUN = function(x) {
     x <- FindVariableFeatures(x, selection.method = "vst", nfeatures = 2000)
 })
 ```
-```{r}
+
+2. Find integration "anchors": These are genes that "represent" common marker genes across the common cell tyeps within the dataset.
+
+```{r find_anchors}
 immune.anchors <- FindIntegrationAnchors(object.list = ifnb.list, dims = 1:20)
+str(immune.anchors, max.level = 3)
+
 ```
-```{r}
+
+3. Integrate!
+
+```{r integrate}
 immune.combined <- IntegrateData(anchorset = immune.anchors, dims = 1:20)
 
 ```
-
-```{r}
-DefaultAssay(immune.combined) <- "integrated"
-
+```{r look_assays}
+Assays(immune.combined)
 ```
+We can see that `immune.combined` has a new assay called `integrated`. We will run dimension reduction methods on the `integrated` assay.
+Now we can run dimension reduction on the `integrated` assay.
 
-```{r}
+```{r run dimred}
+DefaultAssay(immune.combined) <- "integrated"
+# Run the standard workflow for visualization and clustering
+immune.combined <- ScaleData(immune.combined, verbose = FALSE)
+immune.combined <- RunPCA(immune.combined, npcs = 30, verbose = FALSE)
 immune.combined <- RunUMAP(immune.combined, reduction = "pca", dims = 1:20)
 p1 <- UMAPPlot(immune.combined, group.by="stim" )
+```
+
+
+For our dataset we can compare what the UMAP would look like with and without integration.
+
+First we must run dimension resduction on out original `ifnb` object.
+```{r dimred_not_integrated}
+# quickly run the prerequisite steps for UMAP on our original data
+ifnb <- FindVariableFeatures(ifnb, nfeatures = 2000)
+ifnb <- ScaleData(ifnb)
+ifnb <- RunPCA(ifnb)
+ifnb <- RunUMAP(ifnb, reduction = "pca", dims=1:50)
+```
+
+
+```{r compare_integration,fig.width=8, fig.height=3}
+# no integration
+p1 <- UMAPPlot(ifnb, group.by="stim" )
+# Integrated
+p2 <- UMAPPlot(immune.combined, group.by="stim")
+plot_grid(p1, p2)
 ```
 
 ### SCTransform
 The alternative normalisation method SCTransform can be used to do this integration using the following code, maybe try it out in your own time.
 The method and it's benefits are discussed in the [preprint](https://www.biorxiv.org/content/10.1101/576827v2) and a separate [vignette](https://satijalab.org/seurat/v3.0/sctransform_vignette.html)
 
-```{r}
+```{r run_sctransform}
 # for (i in 1:length(ifnb.list)) {
 #     ifnb.list[[i]] <- SCTransform(ifnb.list[[i]], verbose = FALSE)
 # }
@@ -116,40 +156,16 @@ There are also a host of other methods, one of the most popular current tools is
 [paper](https://www.nature.com/articles/s41592-019-0619-0)
 
 One last comment about integration before we move on. Lots of different methods work in different ways! Different methods work better on different datasets. Methods of benchmarking different batch correction/integration techniques are discussed in this [paper](https://genomebiology.biomedcentral.com/articles/10.1186/s13059-019-1850-9)
-
 The main thing I would recommend is always look at your dimension reduction plots to compare how different methods are acting on your dataset.
 
-For our dataset we can compare what the UMAP would look like with and without integration
-```{r}
-# quickly run the prerequisite steps for UMAP on our original data
-ifnb <- FindVariableFeatures(ifnb, nfeatures = 2000)
-ifnb <- ScaleData(ifnb)
-ifnb <- RunPCA(ifnb)
-ifnb <- RunUMAP(ifnb, reduction = "pca", dims=1:50)
-```
-
-
-```{r,fig.width=8, fig.height=3}
-# no integration
-p1 <- UMAPPlot(ifnb, group.by="stim" )
-# Integrated
-p2 <- UMAPPlot(immune.combined, group.by="stim")
-plot_grid(p1, p2)
-```
 
 # Dimension reduction and clustering
 
 Having integrated our dataset, we can get back to trying to visualise our data set 
 
-```{r}
-# Run the standard workflow for visualization and clustering
-immune.combined <- ScaleData(immune.combined, verbose = FALSE)
-immune.combined <- RunPCA(immune.combined, npcs = 30, verbose = FALSE)
+UMAP and Clustering
 
-```
-# t-SNE and Clustering
-
-```{r}
+```{r clustering}
 immune.combined <- RunUMAP(immune.combined, reduction = "pca", dims = 1:20)
 immune.combined <- FindNeighbors(immune.combined, reduction = "pca", dims = 1:20)
 immune.combined <- FindClusters(immune.combined, resolution = 0.5)
@@ -160,10 +176,49 @@ UMAPPlot(immune.combined)
 But what a parameters are the "best" parameters? 
 Answer :shrug_emoji: it depends!! 
 
-Every dataset is different.
+Key parameters:
+
+FindClusters:
+- resolution (try some different resolutions in the range or 0.5 to 1.5, the more cells in teh data set the higher the most appropriate resolution. The `clustree visualisation can help work this out
+```{r clustering_parameters}
+plts <- list()
+res_opt <- c(0.1, 0.2, 0.4, 0.6, 0.8, 1)
+for(res in res_opt){
+	print(res)
+	immune.combined <- FindClusters(immune.combined, resolution = res)
+	plts[[as.character(res)]] <- UMAPPlot(immune.combined, group.by=paste0("integrated_snn_res.", res)) + ggtitle(paste("resolution", res))
+
+}
+
+# the new resoltuoins have been automatically saved in the metadata
+colnames(immune.combined@meta.data)
+plot_grid(plotlist = plts)
+```
+
+```{r run_clustree}
+library(clustree)
+clustree(immune.combined)
+```
+
+We can store out favourite resolution as the default
+```{r}
+Idents(immune.combined) <- immune.combined@meta.data$`integrated_snn_res.0.2`
+```
+
+Other parameters you should investigate in your own datasets are:
+FindNeighbours:
+	- k.param (this is the number of neighbours that you find per cell)
+
+RunUMAP:
+- n.neighbours (This determines the number of neighboring points used in local approximations of manifold structure. Larger values will result in more global structure being preserved at the loss of detailed local structure. In general this parameter should often be in the range 5 to 50.)
+- min.dist (This controls how tightly the embedding is allowed compress points together. Larger values ensure embedded points are moreevenly distributed, while smaller values allow the algorithm to optimise more accurately with regard to local structure. Sensible values are in the range 0.001 to 0.5.)
+
+Many of the parameters can influence each other, so you may have to take an iteratvie appraoch to find the "best parameters for your data"
+
 
 Let's save our data set here
-```{r}
+```{r save_data}
 saveRDS(immune.combined, file = "~/gms/data/ifnb_integrated.rds")
 ```
 
+Now let's move on to finding cluster markers.

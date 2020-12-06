@@ -5,7 +5,7 @@
 if (!requireNamespace("BiocManager", quietly = TRUE))
 	install.packages("BiocManager")
 
-BiocManager::install(c("Seurat", "tidyverse"))
+BiocManager::install(c("Seurat", "tidyverse", "clustree", "limma"))
 devtools::install_github('satijalab/seurat-data')
 
 

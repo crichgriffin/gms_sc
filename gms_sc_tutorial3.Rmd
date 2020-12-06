@@ -5,95 +5,131 @@ date: "04/12/2020"
 output: html_document
 ---
 
+# Differential Expression
+
+<!-- This tutorial uses the data and loosely follows the tutorial here: https://satijalab.org/seurat/v3.2/immune_alignment.html -->
+
+
+## Finding differentially expressed features (cluster biomarkers)
+
+Seurat can help you find markers that define clusters via differential expression. By default, it identifes positive and negative markers of a single cluster (specified in `ident.1`), compared to all other cells.  `FindAllMarkers` automates this process for all clusters, but you can also test groups of clusters vs. each other, or against all cells.
+
+
+
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-# BiocManager::install('limma')
+library(tidyverse)
 library(Seurat)
 
 ```
 
 
-
 ```{r, fig.width=8, fig.height=3}
-ifnb <- readRDS("~/gms/data/ifnb_integrated.rds")
-UMAPPlot(ifnb, group.by=c("seurat_clusters", "seurat_annotations"))
+immune.combined <- readRDS("~/gms/data/ifnb_integrated.rds")
+UMAPPlot(immune.combined, group.by=c("seurat_clusters", "seurat_annotations"))
 ```
 
+```{r}
+DimPlot(immune.combined, reduction = "umap", split.by = "stim", group.by = "seurat_annotations")
+```
 
 ### Finding differentially expressed features (cluster biomarkers)
-	
-	Seurat can help you find markers that define clusters via differential expression. By default, it identifes positive and negative markers of a single cluster (specified in `ident.1`), compared to all other cells.  `FindAllMarkers` automates this process for all clusters, but you can also test groups of clusters vs. each other, or against all cells.
-
-The `min.pct` argument requires a feature to be detected at a minimum percentage in either of the two groups of cells, and the thresh.test argument requires a feature to be differentially expressed (on average) by some amount between the two groups. You can set both of these to 0, but with a dramatic increase in time - since this will test a large number of features that are unlikely to be highly discriminatory. As another option to speed up these computations, `max.cells.per.ident` can be set. This will downsample each identity class to have no more cells than whatever this is set to. While there is generally going to be a loss in power, the speed increases can be significiant and the most highly differentially expressed features will likely still rise to the top.
-```{r}
-DefaultAssay(ifnb) <- "integrated"
-
-```
 
 
 ```{r markers1, fig.height=8, fig.width=15}
-# find all markers of cluster 1
-cluster1.markers <- FindMarkers(object = ifnb, ident.1 = 1, min.pct = 0.25)
-head(x = cluster1.markers, n = 5)
-```
-
-
-```{r markers1, fig.height=8, fig.width=15}
-# find all markers distinguishing cluster 5 from clusters 0 and 3
-cluster4.markers <- FindMarkers(object = ifnb, ident.1 = 4, ident.2 = c(0, 8), min.pct = 0.25)
-head(x = cluster4.markers, n = 5)
-```
-
-
-```{r markers1, fig.height=8, fig.width=15}
+DefaultAssay(immune.combined) <- "RNA"
+Idents(immune.combined) <- immune.combined$seurat_annotations
 # find markers for every cluster compared to all remaining cells, report only the positive ones
-ifnb.markers <- FindAllMarkers(object = ifnb, only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.25)
-ifnb.markers %>% group_by(cluster) %>% top_n(n = 2, wt = avg_logFC)
-```
-
-Seurat has several tests for differential expression which can be set with the test.use parameter (see our [DE vignette](http://satijalab01.nygenome.org/seurat/v3.0/de_vignette.html) for details). For example, the ROC test returns the 'classification power' for any individual marker (ranging from 0 - random, to 1 - perfect).
-
-*Maybe have a look at what the different DE methods available are and how different the results are*
-
-```{r markersroc, fig.height=8, fig.width=15}
-# cluster1.markers <- FindMarkers(object = ifnb, ident.1 = 0, logfc.threshold = 0.25, test.use = "roc", only.pos = TRUE)
-```
-
-Alterntaviely if we want to sepcifically look for conserved markers across your conditions, we could use the `FindConservedMarkers`
-
-We include several tools for visualizing marker expression. `VlnPlot` (shows expression probability distributions across clusters), and `FeaturePlot` (visualizes feature expression on a tSNE or PCA plot) are our most commonly used visualizations. We also suggest exploring `RidgePlot`, `CellScatter`, and `DotPlot` as additional methods to view your dataset.
-
-```{r markerplots, fig.height=8, fig.width=15}
-VlnPlot(object = ifnb, features = c("MS4A1", "CD79A"))
-# you can plot raw counts as well
-VlnPlot(object = ifnb, features = c("NKG7", "PF4"), slot = 'counts', log = TRUE)
-FeaturePlot(immune.combined, features = c("CD3D", "SELL", "CREM", "CD8A", "GNLY", "CD79A", "FCGR3A", 
-    "CCL2", "PPBP"), min.cutoff = "q9")
+immune.combined.markers <- FindAllMarkers(object = immune.combined, only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.25)
+immune.combined.markers %>% group_by(cluster) %>% top_n(n = 2, wt = avg_logFC)
 ```
 
 `DoHeatmap` generates an expression heatmap for given cells and features. In this case, we are plotting the top 20 markers (or all markers if less than 20) for each cluster.
 
-```{r clusterHeatmap, fig.height=12, fig.width=15}
-ifnb.markers %>% group_by(cluster) %>% top_n(n = 10, wt = avg_logFC) -> top10
-DoHeatmap(object = ifnb, features = top10$gene) + NoLegend()
+```{r clusterHeatmap, fig.height=7, fig.width=10}
+
+Idents(immune.combined) <- factor(Idents(immune.combined), levels = c("pDC", "Eryth", "Mk", "DC", 
+    "CD14 Mono", "CD16 Mono", "B Activated", "B", "CD8 T", "NK", "T activated", "CD4 Naive T", "CD4 Memory T"))
+markers.to.plot <- c("CD3D", "CREM", "HSPH1", "SELL", "GIMAP5", "CACYBP", "GNLY", "NKG7", "CCL5", 
+    "CD8A", "MS4A1", "CD79A", "MIR155HG", "NME1", "FCGR3A", "VMO1", "CCL2", "S100A9", "HLA-DQA1", 
+    "GPR183", "PPBP", "GNG11", "HBA2", "HBB", "TSPAN13", "IL3RA", "IGJ")
+DotPlot(immune.combined, features = markers.to.plot, cols = c("blue", "red"), dot.scale = 8, split.by = "stim") + 
+    RotatedAxis()
 ```
 
-***
-### Assigning cell type identity to clusters
-	
-In many cases we can use canonical markers to identify the clusters. 
-In our case we are lucky that it has already been done for us and is in the metadata under `seurat_annotations`, and it corresponds pretty well with our clusters.
+You can see som edifferences between Stim and Ctrl in this plot.
 
-(If you need it, you can look up code to assign an annotation column to the metadata in the pbmc3k Seurat vignette)
+### Alternative approach to finiding cluster markers for integrated data
 
-```{r, fig.width=8, fig.height=3}
-UMAPPlot(ifnb, group.by=c("seurat_clusters", "seurat_annotations"))
+Alterntaviely if we want to sepcifically look for conserved markers across your conditions, we could use the `FindConservedMarkers`
+This function performs differential gene expression testing for each dataset/group and combines the p-values using meta-analysis methods from the MetaDE R package. 
+
+This could be useful in situations where the integration has worked less well.
+
+```{r}
+# BiocManager::install('multtest') 
+# install.packages('metap')
+# nk.markers <- FindConservedMarkers(immune.combined, ident.1 = 6, grouping.var = "stim", verbose = FALSE)
+# head(nk.markers)
 ```
 
-## Identifying conserved markers
-Going back to our experiment, we can ask how do 
 
+## Identifying stimulation responsive genes.
+Going back to our experiment, we can finally answer our original question "How does ifnb treatment change expression in different cells types within pbmcs?"
+
+Identify differential expressed genes across conditions
+Now that we've aligned the stimulated and control cells, we can start to do comparative analyses and look at the differences induced by stimulation. One way to look broadly at these changes is to plot the average expression of both the stimulated and control cells and look for genes that are visual outliers on a scatter plot. Here, we take the average expression of both the stimulated and control naive T cells and CD14 monocyte populations and generate the scatter plots, highlighting genes that exhibit dramatic responses to interferon stimulation.
+
+```{r}
+library(ggplot2)
+library(cowplot)
+theme_set(theme_cowplot())
+t.cells <- subset(immune.combined, idents = "CD4 Naive T")
+Idents(t.cells) <- "stim"
+avg.t.cells <- log1p(AverageExpression(t.cells, verbose = FALSE)$RNA)
+avg.t.cells$gene <- rownames(avg.t.cells)
+
+cd14.mono <- subset(immune.combined, idents = "CD14 Mono")
+Idents(cd14.mono) <- "stim"
+avg.cd14.mono <- log1p(AverageExpression(cd14.mono, verbose = FALSE)$RNA)
+avg.cd14.mono$gene <- rownames(avg.cd14.mono)
+
+genes.to.label = c("ISG15", "LY6E", "IFI6", "ISG20", "MX1", "IFIT2", "IFIT1", "CXCL10", "CCL8")
+p1 <- ggplot(avg.t.cells, aes(CTRL, STIM)) + geom_point() + ggtitle("CD4 Naive T Cells")
+p1 <- LabelPoints(plot = p1, points = genes.to.label, repel = TRUE)
+p2 <- ggplot(avg.cd14.mono, aes(CTRL, STIM)) + geom_point() + ggtitle("CD14 Monocytes")
+p2 <- LabelPoints(plot = p2, points = genes.to.label, repel = TRUE)
+plot_grid(p1, p2)
+```
+As you can see, many of the same genes are upregulated in both of these cell types and likely represent a conserved interferon response pathway.
+
+Because we are confident in having identified common cell types across condition, we can ask what genes change in different conditions for cells of the same type. First, we create a column in the meta.data slot to hold both the cell type and stimulation information and switch the current ident to that column. Then we use FindMarkers to find the genes that are different between stimulated and control B cells. Notice that many of the top genes that show up here are the same as the ones we plotted earlier as core interferon response genes. Additionally, genes like CXCL10 which we saw were specific to monocyte and B cell interferon response show up as highly significant in this list as well.
+```{r}
+immune.combined$celltype.stim <- paste(Idents(immune.combined), immune.combined$stim, sep = "_")
+immune.combined$celltype <- Idents(immune.combined)
+Idents(immune.combined) <- "celltype.stim"
+b.interferon.response <- FindMarkers(immune.combined, ident.1 = "B_STIM", ident.2 = "B_CTRL", verbose = FALSE)
+head(b.interferon.response, n = 15)
+```
+
+Another useful way to visualize these changes in gene expression is with the split.by option to the FeaturePlot or VlnPlot function. This will display FeaturePlots of the list of given genes, split by a grouping variable (stimulation condition here). Genes such as CD3D and GNLY are canonical cell type markers (for T cells and NK/CD8 T cells) that are virtually unaffected by interferon stimulation and display similar gene expression patterns in the control and stimulated group. IFI6 and ISG15, on the other hand, are core interferon response genes and are upregulated accordingly in all cell types. Finally, CD14 and CXCL10 are genes that show a cell type specific interferon response. CD14 expression decreases after stimulation in CD14 monocytes, which could lead to misclassification in a supervised analysis framework, underscoring the value of integrated analysis. CXCL10 shows a distinct upregulation in monocytes and B cells after interferon stimulation but not in other cell types.
+```{r, fig.height=8, fig.width=6}
+FeaturePlot(immune.combined, features = c("CD3D", "GNLY", "IFI6"), split.by = "stim", max.cutoff = 3, 
+    cols = c("grey", "red"))
+```
+
+```{r, fig.width=8, fig.height=6}
+plots <- VlnPlot(immune.combined, features = c("LYZ", "ISG15", "CXCL10", "IFIT1"), split.by = "stim", group.by = "celltype", 
+    pt.size = 0, combine = FALSE)
+plot_grid(plotlist = plots, nrow = 2)
+```
+
+### Save our work
+
+```{r save_markers}
+write_csv(b.interferon.response, "~/gms/data/markers_ifnb_response.csv")
+```
 
 ```{r save.rds}
-saveRDS(ifnb, file = "../output/ifnb_final.rds")
+saveRDS(immune.combined, file = "~/gms/data/immune.combined_final.rds")
 ```
